@@ -2,15 +2,24 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <sys/timerfd.h>
 #include <pthread.h>
+#include <time.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #include "epoll.h"
 #include "../common/log.h"
 #include "thread_pool.hpp"
 
 #define EVENT_NUM 10000
+//#define OVERTIME 10        //超时时间60s 
 
 class Singleton;
+
+void SetTime();
 
 class HttpServer
 {
@@ -91,30 +100,96 @@ public:
                         ConnectEventHandler(client_sock);
                     }
                 }
-                else 
+                else if(static_cast<Event *>(events[i].data.ptr)->fd_type_\
+                        == Event::FdType::CLIENT_FD)
                 {
-                    EventHandler(&events[i].data);
+                    ClientEventHandler(&events[i].data);
+                } 
+                else if(static_cast<Event *>(events[i].data.ptr)->fd_type_\
+                        == Event::FdType::PIPE_FD)
+                {
+                    PipeEventHandler(&events[i].data);
+                }
+                else if(static_cast<Event *>(events[i].data.ptr)->fd_type_\
+                        == Event::FdType::TIME_FD)
+                {
+                    OvertimeEventHandler(&events[i].data);
                 }
             }
         }
     }
-    void EventHandler(epoll_data_t * user_data)
+    void ClientEventHandler(epoll_data_t * user_data)
     {
-        tp->EventPush(static_cast<Event *>(user_data->ptr));
+        Event * event = static_cast<Event *>(user_data->ptr);
+        Singleton::GetEpoll()->EventDel(event->fd_);
+
+        //关闭定时器
+        struct itimerspec zero_value;
+        zero_value.it_value.tv_sec = 0;
+        zero_value.it_value.tv_nsec = 0;
+        zero_value.it_interval.tv_sec = 0;
+        zero_value.it_interval.tv_nsec = 0;
+        timerfd_settime(event->timefd_, TFD_TIMER_ABSTIME, &zero_value, nullptr);
+        std::cout << "关闭定时器: " << event->timefd_<<std::endl;
+        tp->EventPush(event);
+    }
+    void PipeEventHandler(epoll_data_t * user_data)
+    {
+        Event * event = static_cast<Event *>(user_data->ptr);
+        
+        tp->EventPush(event);
     }
 
-    void OvertimeEventHandler(int timefd)
+    void OvertimeEventHandler(epoll_data_t * user_data)
     {
         std::cout << "OvertimeEventHandler" <<std::endl;
+        Event * event = static_cast<Event *>(user_data->ptr);
+
+        Singleton::GetEpoll()->EventDel(event->fd_);
+        Singleton::GetEpoll()->EventDel(event->timefd_);
+        std::cout << "超时关闭连接: " << event->timefd_<<std::endl;
+        close(event->fd_);
+        close(event->timefd_);
+
+    std::cout << "user_count: " << event->handler_.use_count()<<std::endl;
+        delete event;
     }
     void ConnectEventHandler(int client_sock)
     {
         //Singleton::GetEpoll()->SetNoBlock(client_sock);
-        Event * pevent = new Event(client_sock, \
-                &Handler::ReadAndDecode, Event::FdType::CLIENT_FD);
-        Singleton::GetEpoll()->EventAdd(client_sock, EPOLLIN | EPOLLET, pevent);
-        //TODO
-        //设置时钟
+        int timefd = timerfd_create(CLOCK_REALTIME, 0);
+        if(timefd < 0)
+        {
+            LOG(WARNING, "timerfd_create error");
+            return;
+        }
+        struct itimerspec now_value;
+        struct timespec now;
+        //获取当前时间
+        if(clock_gettime(CLOCK_REALTIME, &now) == -1)
+        {
+            LOG(WARNING, "clock_gettime error");
+            return;
+        }
+        now_value.it_value.tv_sec = now.tv_sec + OVERTIME;
+        now_value.it_value.tv_nsec = now.tv_nsec;
+        now_value.it_interval.tv_sec = OVERTIME;
+        now_value.it_interval.tv_nsec = 0;
+
+        Event * pevent_client = new Event(client_sock, \
+                &Handler::ReadAndDecode, Event::FdType::CLIENT_FD, timefd);
+        Singleton::GetEpoll()->EventAdd(client_sock, EPOLLIN | EPOLLET, \
+                pevent_client);
+
+        //设置定时器当定时器超时时关闭连接
+        //如果客户端发送请求则重置定时器
+        timerfd_settime(timefd, TFD_TIMER_ABSTIME, &now_value, nullptr);
+        std::cout <<"设置定时器: " << timefd<<std::endl;
+
+        Event * pevent_time = new Event(client_sock, \
+                nullptr, Event::FdType::TIME_FD, timefd);
+        Singleton::GetEpoll()->EventAdd(timefd, EPOLLIN | EPOLLET, \
+                pevent_time);
     }
 
     ~HttpServer()
@@ -139,10 +214,10 @@ int main(int argc, char * argv[])
     }
     //忽略SIGPIPE信号防止对方提前关闭连接导致服务器被关闭
     signal(SIGPIPE, SIG_IGN);
+
     //初始化http服务器
     HttpServer * server = new HttpServer(atoi(argv[1]));
     server->InitServer();
-    
 
     //启动http服务器
     server->run();    

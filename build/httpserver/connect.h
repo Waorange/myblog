@@ -13,6 +13,10 @@ public:
     Connect(int sock)
         :sock_(sock)
     {}
+    int GetSock()
+    {
+        return sock_;
+    }
 
     //设置正文大小
     int & SetContentLength()
@@ -28,9 +32,9 @@ public:
     void SendReplay(bool cgi, Replay & rep, Resourse & res);
     ~Connect()
     {
-        if(sock_ > 0){
-            close(sock_);
-        }
+//      if(sock_ > 0){
+//          close(sock_);
+//      }
     }
 private:
     //从缓存区读一行，另外将所有的换行转换为\n

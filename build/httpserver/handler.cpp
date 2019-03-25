@@ -76,7 +76,7 @@ bool Handler::HandlerCgi()
             pid_ = pid;
 
             Event * pevent = new Event(fd_output[0], &EncodeAndsend, \
-                    Event::PIPE_FD, const_cast<Handler*>(this));
+                    Event::PIPE_FD, event_->handler_);
             Singleton::GetEpoll()->EventAdd(fd_output[0], EPOLLIN, pevent);
 
             //添加到事件池;
@@ -102,19 +102,19 @@ bool Handler::HandlerCgi()
 
 
 //处理cgi程序返回的结果
-void Handler::ProcessCgiFollow(int fd)
+void Handler::ProcessCgiFollow(int pipe)
 {
     char ch_;
-    while(read(fd, &ch_, 1) > 0)
+    while(read(pipe, &ch_, 1) > 0)
     {
         rep_.MakeReplayText().push_back(ch_);
     }
 
-    close(fd);
+    close(pipe);
     waitpid(pid_, NULL, 0);
-
+    //释放掉管道事件
     ProcessReplay();
-
+    
     LOG(INFO, "Request handler finish");
 }
 
@@ -139,6 +139,11 @@ void Handler::ProcessReplay()
     rep_.MakeReplayBlank();
 
     cont_.SendReplay(cgi_, rep_, res_);
+
+    Singleton::GetEpoll()->EventAdd(cont_.GetSock(), EPOLLIN | EPOLLET, event_);
+    StartTimer(event_->timefd_);
+
+    std::cout << "user_count: " << event_->handler_.use_count()<<std::endl;
 }
 
 
@@ -147,6 +152,8 @@ void Handler::ProcessReplay()
 //重新加入任务队列处理
 bool Handler::ReadAndParse()
 {
+
+    std::cout << "user_count: " << event_->handler_.use_count()<<std::endl;
     LOG(INFO, "start handler ...");  
     int code_ = 0;
     try
