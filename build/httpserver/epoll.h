@@ -15,12 +15,9 @@
 #define EVENT_NUM 10000
 
 //事件
-class Event;
 
 class Event
 {
-typedef void (*EventHandler)(std::shared_ptr<Handler> &handler, \
-        int fd, Event * event);
 public:
     enum FdType
     {
@@ -30,49 +27,61 @@ public:
         PIPE_FD
     };
 
-    Event()
-        :fd_(0)
-        ,timefd_(0)
-        ,handler_(nullptr)
-        ,evhandler_(nullptr)
-        ,fd_type_(LISTEN_FD)
-    {}
-
-    Event(int fd, EventHandler evhandler, FdType fd_type,
-            int timefd = 0)
+    Event(int fd = 0, FdType fd_type = LISTEN_FD)
         :fd_(fd)
-        ,timefd_(timefd)
-        ,handler_(nullptr)
-        ,evhandler_(evhandler)
         ,fd_type_(fd_type)
     {}
-    Event(int fd, EventHandler evhandler, FdType fd_type,
-            std::shared_ptr<Handler>& handler)
-        :fd_(fd)
-        ,timefd_(0)
-        ,handler_(handler)
-        ,evhandler_(evhandler)
-        ,fd_type_(fd_type)
+    virtual void run()
     {
-        std::cout << "PIPE处理" <<std::endl;
+        ;
     }
+    int fd_;
+    FdType fd_type_;
+};
 
+typedef void (*EventHandler)(int fd, Event * pevent);
+class EventTime:public Event
+{
+public:
+    EventTime(int fd, Event * event)
+        : Event(fd, TIME_FD)
+        , event_(event)
+    {}
+    Event * event_;
+};
+
+class EventClinetOrPipe:public Event
+{
+public:
+    EventClinetOrPipe(int fd, EventHandler evhandler, FdType fd_type, \
+            Handler* handler, int timefd = 0)
+        :Event(fd, fd_type)
+        ,handler_(handler)
+        ,timefd_(timefd)
+        ,evhandler_(evhandler)
+    {}
+    ~EventClinetOrPipe()
+    {
+        if(handler_ != nullptr)
+            delete handler_;
+    }   
 
     void run()
     {
-        evhandler_(handler_, fd_, const_cast<Event *>(this));
+        Event * pevent = const_cast<EventClinetOrPipe *>(this);
+        evhandler_(fd_, pevent);
     }
     int GetFd()
     {
         return fd_;
     }
 
-    int fd_;
     int timefd_;
-    std::shared_ptr<Handler> handler_;
+    Handler * handler_;
     EventHandler evhandler_;
-    FdType fd_type_;
 };
+
+
 
 class Epoll
 {
@@ -109,6 +118,58 @@ private:
 private:
     static Epoll * epoll;
 };
+
+//  class EventClinetOrPipe:public Event
+//  {
+//  public:
+
+//  Event()
+//      :fd_(0)
+//      ,timefd_(0)
+//      ,handler_(nullptr)
+//      ,evhandler_(nullptr)
+//      ,fd_type_(LISTEN_FD)
+//  {}
+
+//  Event(int fd, EventHandler evhandler, FdType fd_type,
+//          int timefd = 0)
+//      :fd_(fd)
+//      ,timefd_(timefd)
+//      ,handler_(nullptr)
+//      ,evhandler_(evhandler)
+//      ,fd_type_(fd_type)
+//  {}
+//  Event(int fd, EventHandler evhandler, FdType fd_type,
+//          Handler* handler)
+//      :fd_(fd)
+//      ,timefd_(0)
+//      ,handler_(handler)
+//      ,evhandler_(evhandler)
+//      ,fd_type_(fd_type)
+//  {
+//      std::cout << "PIPE处理" <<std::endl;
+//  }
+//  ~Event()
+//  {
+//      if(handler_ != nullptr)
+//          delete handler_;
+//  }   
+
+//  void run()
+//  {
+//      evhandler_(fd_, const_cast<Event *>(this));
+//  }
+//  int GetFd()
+//  {
+//      return fd_;
+//  }
+
+//  int fd_;
+//  int timefd_;
+//  Handler * handler_;
+//  EventHandler evhandler_;
+//  };
+
 
 
 

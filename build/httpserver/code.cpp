@@ -135,20 +135,18 @@ void Replay::MakeStatusLine()
 
 void Replay::MakeReplayHand(bool cgi, Resourse & res)
 {
+    rep_head_ += "Content-Length: ";
+    rep_head_ += IntToString(res.GetResSize());
+    rep_head_ += '\n';
+    rep_head_ += "Connection: keep-alive\n";
     if(!cgi)
     {
-        rep_head_ += "Content-Length: ";
-        rep_head_ += IntToString(res.GetResSize());
-        rep_head_ += '\n';
         rep_head_ += "Content-Type: ";
         rep_head_ += res.GetResType();
         rep_head_ += '\n';
     }
     else
     {
-        rep_head_ += "Content-Length: ";
-        rep_head_ += IntToString(rep_text_.size());
-        rep_head_ += '\n';
         rep_head_ += "Content-Type: text/html\n";
     }
 }

@@ -58,8 +58,7 @@ public:
             LOG(FATAL, "listen socket error");
             exit(1);
         }
-        Event * pevent = new Event(listen_sock_, nullptr, \
-                Event::FdType::LISTEN_FD);
+        Event * pevent = new Event(listen_sock_);
         if(!Singleton::GetEpoll()->EventAdd(listen_sock_, \
                     EPOLLIN | EPOLLET, pevent))
         {
@@ -120,8 +119,8 @@ public:
     }
     void ClientEventHandler(epoll_data_t * user_data)
     {
-        Event * event = static_cast<Event *>(user_data->ptr);
-        Singleton::GetEpoll()->EventDel(event->fd_);
+        Event * pevent = static_cast<Event *>(user_data->ptr);
+        Singleton::GetEpoll()->EventDel(pevent->fd_);
 
         //关闭定时器
         struct itimerspec zero_value;
@@ -129,30 +128,37 @@ public:
         zero_value.it_value.tv_nsec = 0;
         zero_value.it_interval.tv_sec = 0;
         zero_value.it_interval.tv_nsec = 0;
-        timerfd_settime(event->timefd_, TFD_TIMER_ABSTIME, &zero_value, nullptr);
-        std::cout << "关闭定时器: " << event->timefd_<<std::endl;
-        tp->EventPush(event);
+
+        EventClinetOrPipe *pevent_client = \
+                dynamic_cast<EventClinetOrPipe*>(pevent);
+        timerfd_settime(pevent_client->timefd_, \
+                TFD_TIMER_ABSTIME, &zero_value, nullptr);
+        std::cout << "关闭定时器: " << pevent_client->timefd_<<std::endl;
+        tp->EventPush(pevent);
     }
     void PipeEventHandler(epoll_data_t * user_data)
     {
         Event * event = static_cast<Event *>(user_data->ptr);
-        
         tp->EventPush(event);
     }
 
     void OvertimeEventHandler(epoll_data_t * user_data)
     {
-        std::cout << "OvertimeEventHandler" <<std::endl;
-        Event * event = static_cast<Event *>(user_data->ptr);
+        Event * pevent = static_cast<Event *>(user_data->ptr);
 
-        Singleton::GetEpoll()->EventDel(event->fd_);
-        Singleton::GetEpoll()->EventDel(event->timefd_);
-        std::cout << "超时关闭连接: " << event->timefd_<<std::endl;
-        close(event->fd_);
-        close(event->timefd_);
+        EventTime *pevent_time = dynamic_cast<EventTime *>(pevent);
+        EventClinetOrPipe *pevent_client = \
+            dynamic_cast<EventClinetOrPipe*>(pevent_time->event_);
 
-    std::cout << "user_count: " << event->handler_.use_count()<<std::endl;
-        delete event;
+
+        Singleton::GetEpoll()->EventDel(pevent_client->fd_);
+        Singleton::GetEpoll()->EventDel(pevent_client->timefd_);
+        std::cout << "超时关闭连接: " << pevent_client->fd_<<std::endl;
+        close(pevent_client->fd_);
+        close(pevent_client->timefd_);
+
+        delete pevent_client;
+        delete pevent_time;
     }
     void ConnectEventHandler(int client_sock)
     {
@@ -176,8 +182,9 @@ public:
         now_value.it_interval.tv_sec = OVERTIME;
         now_value.it_interval.tv_nsec = 0;
 
-        Event * pevent_client = new Event(client_sock, \
-                &Handler::ReadAndDecode, Event::FdType::CLIENT_FD, timefd);
+        Event * pevent_client = new EventClinetOrPipe(client_sock, \
+                &Handler::ReadAndDecode, Event::FdType::CLIENT_FD, \
+                nullptr, timefd);
         Singleton::GetEpoll()->EventAdd(client_sock, EPOLLIN | EPOLLET, \
                 pevent_client);
 
@@ -186,8 +193,7 @@ public:
         timerfd_settime(timefd, TFD_TIMER_ABSTIME, &now_value, nullptr);
         std::cout <<"设置定时器: " << timefd<<std::endl;
 
-        Event * pevent_time = new Event(client_sock, \
-                nullptr, Event::FdType::TIME_FD, timefd);
+        Event * pevent_time = new EventTime(timefd, pevent_client);
         Singleton::GetEpoll()->EventAdd(timefd, EPOLLIN | EPOLLET, \
                 pevent_time);
     }

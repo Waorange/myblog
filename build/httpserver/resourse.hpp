@@ -33,6 +33,15 @@ public:
     {
         return path_;
     }
+    bool IsProxy()
+    {
+        size_t pos = path_.find("proxy");
+        if(pos != std::string::npos)
+        {
+            return true;
+        }
+        else return false;
+    }
     bool IsPathLegal(bool & cgi)
     {
         //获取文件属性

@@ -75,12 +75,12 @@ bool Handler::HandlerCgi()
             close(fd_input[1]);
             pid_ = pid;
 
-            Event * pevent = new Event(fd_output[0], &EncodeAndsend, \
-                    Event::PIPE_FD, event_->handler_);
-            Singleton::GetEpoll()->EventAdd(fd_output[0], EPOLLIN, pevent);
-
-            //添加到事件池;
-
+            EventClinetOrPipe * pevent_pipe = \
+                dynamic_cast<EventClinetOrPipe*> (event_); 
+            Event * pevent = new EventClinetOrPipe(fd_output[0], \
+                &EncodeAndsend, Event::PIPE_FD, pevent_pipe->handler_);
+            Singleton::GetEpoll()->EventAdd(fd_output[0], \
+                EPOLLIN | EPOLLET, pevent);
         }
     }
     catch(...) 
@@ -140,10 +140,12 @@ void Handler::ProcessReplay()
 
     cont_.SendReplay(cgi_, rep_, res_);
 
-    Singleton::GetEpoll()->EventAdd(cont_.GetSock(), EPOLLIN | EPOLLET, event_);
-    StartTimer(event_->timefd_);
+    Singleton::GetEpoll()->EventAdd(cont_.GetSock(), \
+            EPOLLIN | EPOLLET, event_);
+    EventClinetOrPipe * pevent_cp = \
+        dynamic_cast<EventClinetOrPipe*> (event_); 
+    StartTimer(pevent_cp->timefd_);
 
-    std::cout << "user_count: " << event_->handler_.use_count()<<std::endl;
 }
 
 
@@ -153,7 +155,6 @@ void Handler::ProcessReplay()
 bool Handler::ReadAndParse()
 {
 
-    std::cout << "user_count: " << event_->handler_.use_count()<<std::endl;
     LOG(INFO, "start handler ...");  
     int code_ = 0;
     try
@@ -170,14 +171,6 @@ bool Handler::ReadAndParse()
 
         req_.RequestUriParse(res_.SetPath());
 
-        //找不到资源Not Found
-        if(!res_.IsPathLegal(cgi_))
-        {
-            code_ = 404;
-            cont_.ReadRequestHead(req_.SetReqHead());
-            throw "error";
-        }
-
         const std::string massage = res_.GetPath();
         LOG(INFO, massage);
 
@@ -193,6 +186,19 @@ bool Handler::ReadAndParse()
             req_.GetContentLength(cont_.SetContentLength());
             cont_.ReadRequestText(req_.SetReqParam());
         } 
+        if(res_.IsProxy())
+        {
+            std::cout << "代理服务" << std::endl;
+            //HandlerProxy();
+        }
+        else if(!res_.IsPathLegal(cgi_))
+        {
+            //找不到资源Not Found
+            code_ = 404;
+            //cont_.ReadRequestHead(req_.SetReqHead());
+            throw "error";
+        }
+
         req_.JudgeCode(rep_.SetCode());
 
         if(cgi_){
@@ -215,5 +221,24 @@ bool Handler::ReadAndParse()
         return true;
     }
 }
+//用于事件回调
+void Handler::ReadAndDecode(int fd, Event * pevent)
+{
+    EventClinetOrPipe * pevent_client = \
+        dynamic_cast<EventClinetOrPipe*> (pevent); 
+    if(pevent_client->handler_ != nullptr)
+    {
+        delete pevent_client->handler_;
+    }
+    pevent_client->handler_ = new Handler(pevent, fd);
+    pevent_client->handler_->ReadAndParse();
+}
+void Handler::EncodeAndsend(int fd, Event * pevent)
+{
+    EventClinetOrPipe * pevent_pipe = \
+        dynamic_cast<EventClinetOrPipe*> (pevent); 
+    pevent_pipe->handler_->ProcessCgiFollow(fd);
+}
+
 
 

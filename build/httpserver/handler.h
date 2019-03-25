@@ -17,12 +17,10 @@
 #include "resourse.hpp"
 #include "code.h"
 #include "connect.h"
-
 #define OVERTIME 10
 class Singleton; 
+
 class Event;
-
-
 class Handler
 {
 public:
@@ -48,23 +46,13 @@ public:
     //对于cgi，启动cgi并发送参数，然后添加到s_pepoll中，等待cgi程序处理完结果返回到程序
     //重新加入任务队列处理
     bool ReadAndParse();
-
-
+    
     //用于事件回调
-    static void ReadAndDecode(std::shared_ptr<Handler> &handler, \
-            int fd, Event * event)
-    {
+    static void ReadAndDecode(int fd, Event * event);
+    static void EncodeAndsend(int fd, Event * event);
+   
 
-        handler = std::shared_ptr<Handler>(new Handler(event, fd));
-        handler->ReadAndParse();
-
-    }
-    static void EncodeAndsend(std::shared_ptr<Handler> &handler, \
-            int fd, Event * event)
-    {
-        handler->ProcessCgiFollow(fd);
-    }
-    //设置定时器
+        //设置定时器
     static void StartTimer(int timefd)
     {
         std::cout <<"重启定时器: "<< timefd <<std::endl;

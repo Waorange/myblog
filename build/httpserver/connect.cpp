@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <iostream>
+#include "../common/log.h"
 
 bool Connect::ReadOneLine(std::string & str)
 {
@@ -22,8 +23,9 @@ bool Connect::ReadOneLine(std::string & str)
             }
             str += ch_;
         }
-        else 
+        else if(recv == 0)
         {
+            LOG(INFO, "对方关闭了链接");
             return false;
         }
     }
